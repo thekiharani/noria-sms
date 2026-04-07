@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 
-class NoriaSmsError(Exception):
+class NoriaMessagingError(Exception):
     def __init__(
         self,
         message: str,
         *,
-        code: str = "NORIA_SMS_ERROR",
+        code: str = "NORIA_MESSAGING_ERROR",
         details: object = None,
     ) -> None:
         super().__init__(message)
@@ -14,22 +14,22 @@ class NoriaSmsError(Exception):
         self.details = details
 
 
-class ConfigurationError(NoriaSmsError):
+class ConfigurationError(NoriaMessagingError):
     def __init__(self, message: str, *, details: object = None) -> None:
         super().__init__(message, code="CONFIGURATION_ERROR", details=details)
 
 
-class TimeoutError(NoriaSmsError):
+class TimeoutError(NoriaMessagingError):
     def __init__(self, message: str, *, details: object = None) -> None:
         super().__init__(message, code="TIMEOUT_ERROR", details=details)
 
 
-class NetworkError(NoriaSmsError):
+class NetworkError(NoriaMessagingError):
     def __init__(self, message: str, *, details: object = None) -> None:
         super().__init__(message, code="NETWORK_ERROR", details=details)
 
 
-class ApiError(NoriaSmsError):
+class ApiError(NoriaMessagingError):
     def __init__(
         self,
         message: str,
@@ -43,7 +43,7 @@ class ApiError(NoriaSmsError):
         self.response_body = response_body
 
 
-class GatewayError(NoriaSmsError):
+class GatewayError(NoriaMessagingError):
     def __init__(
         self,
         message: str,
@@ -59,3 +59,11 @@ class GatewayError(NoriaSmsError):
         self.error_code = error_code
         self.error_description = error_description
         self.response_body = response_body
+
+
+class WebhookVerificationError(NoriaMessagingError):
+    def __init__(self, message: str, *, details: object = None) -> None:
+        super().__init__(message, code="WEBHOOK_VERIFICATION_ERROR", details=details)
+
+
+NoriaSmsError = NoriaMessagingError
