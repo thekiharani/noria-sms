@@ -1,13 +1,13 @@
-# `noria-sms`
+# `noria-messaging`
 
-Reusable Python SMS SDK with pluggable gateway integrations.
+Reusable Python messaging SDK with channel-oriented gateway integrations.
 
-The package is now `httpx`-based and async-first, while still keeping a sync API for callers that do not want to run an event loop. Provider-specific code lives in dedicated adapters instead of leaking into the public API. `OnfonGateway` is the first implementation.
+The package is `httpx`-based and async-first, while still keeping a sync API for callers that do not want to run an event loop. The public surface is split by channel so SMS, WhatsApp, and future transports can evolve without being forced into one payload model.
 
 ## Install
 
 ```bash
-pip install noria-sms
+pip install noria-messaging
 ```
 
 Python requirement: `>=3.11`
@@ -16,15 +16,18 @@ Python requirement: `>=3.11`
 
 Implemented now:
 
-- generic SMS request and result models
-- pluggable sync and async gateway protocols
+- top-level sync and async messaging clients
+- pluggable sync and async channel gateway protocols
 - reusable `httpx` transport with retry and hooks
+- SMS channel models and services
 - Onfon SMS send
 - Onfon balance lookup
 - Onfon delivery-report parsing
+- WhatsApp channel scaffolding for future gateways
 
 Not implemented yet:
 
+- WhatsApp provider adapters
 - other SMS gateways
 - provider-side template and group management
 - framework-specific webhook helpers
@@ -32,13 +35,14 @@ Not implemented yet:
 ## Main Exports
 
 ```python
-from noria_sms import (
-    AsyncSmsClient,
+from noria_messaging import (
+    AsyncMessagingClient,
     GatewayError,
-    OnfonGateway,
-    SendSmsRequest,
+    OnfonSmsGateway,
+    SmsSendRequest,
     SmsMessage,
-    SmsClient,
+    MessagingClient,
+    WhatsAppTextRequest,
 )
 ```
 
@@ -49,20 +53,20 @@ from noria_sms import (
 ```python
 import asyncio
 
-from noria_sms import AsyncSmsClient, OnfonGateway, SendSmsRequest, SmsMessage
+from noria_messaging import AsyncMessagingClient, OnfonSmsGateway, SmsMessage, SmsSendRequest
 
 
 async def main() -> None:
-    gateway = OnfonGateway(
+    gateway = OnfonSmsGateway(
         access_key="your-access-key",
         api_key="your-api-key",
         client_id="your-client-id",
         default_sender_id="NORIA",
     )
 
-    async with AsyncSmsClient(gateway) as sms:
-        result = await sms.send(
-            SendSmsRequest(
+    async with AsyncMessagingClient(sms=gateway) as messaging:
+        result = await messaging.sms.send(
+            SmsSendRequest(
                 messages=[
                     SmsMessage(recipient="254712345678", text="Hello Alice", reference="user-1"),
                     SmsMessage(recipient="254722345678", text="Hello Bob", reference="user-2"),
@@ -82,19 +86,19 @@ asyncio.run(main())
 ### Sync Fallback
 
 ```python
-from noria_sms import OnfonGateway, SendSmsRequest, SmsClient, SmsMessage
+from noria_messaging import MessagingClient, OnfonSmsGateway, SmsMessage, SmsSendRequest
 
-gateway = OnfonGateway(
+gateway = OnfonSmsGateway(
     access_key="your-access-key",
     api_key="your-api-key",
     client_id="your-client-id",
     default_sender_id="NORIA",
 )
 
-sms = SmsClient(gateway)
+messaging = MessagingClient(sms=gateway)
 
-result = sms.send(
-    SendSmsRequest(
+result = messaging.sms.send(
+    SmsSendRequest(
         messages=[
             SmsMessage(recipient="254712345678", text="Hello Alice", reference="user-1"),
             SmsMessage(recipient="254722345678", text="Hello Bob", reference="user-2"),
@@ -113,7 +117,7 @@ for receipt in result.messages:
 Async:
 
 ```python
-balance = await sms.get_balance()
+balance = await messaging.sms.get_balance()
 
 for entry in balance.entries:
     print(entry.label, entry.credits_raw, entry.credits)
@@ -122,15 +126,15 @@ for entry in balance.entries:
 Sync:
 
 ```python
-balance = sms.get_balance()
+balance = messaging.sms.get_balance()
 ```
 
-## Delivery Reports
+## Delivery Events
 
-`OnfonGateway` exposes a parser for the documented DLR query string shape:
+`OnfonSmsGateway` exposes a parser for the documented DLR query string shape and returns a normalized delivery event:
 
 ```python
-report = sms.parse_delivery_report(
+event = messaging.sms.parse_delivery_report(
     {
         "messageId": "fc103131-5931-4530-ba8e-aa223c769536",
         "mobile": "254712345678",
@@ -142,15 +146,14 @@ report = sms.parse_delivery_report(
 )
 ```
 
-## Extending With More Gateways
+## Channel Layout
 
-Future providers should implement the `AsyncSmsGateway` and `SmsGateway` contracts and live under `noria_sms.gateways`.
+Future providers should implement the channel gateway contracts and live under the relevant channel package:
 
-That keeps:
+- `noria_messaging.channels.sms.gateways`
+- `noria_messaging.channels.whatsapp.gateways`
 
-- shared transport and retry behavior reusable
-- provider response quirks isolated
-- the public send/balance/DLR models stable across gateways
+That keeps shared transport and retry behavior reusable while still letting each channel have its own request models.
 
 ## Source Reference
 

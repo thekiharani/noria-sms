@@ -1,7 +1,7 @@
 [project]
-name = "noria-sms"
+name = "noria-messaging"
 version = "0.1.0"
-description = "Reusable Python SMS SDK with pluggable gateway integrations."
+description = "Reusable Python messaging SDK with channel-oriented gateway integrations."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Noria Labs" }]
@@ -23,10 +23,10 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["noria_sms*"]
+include = ["noria_messaging*"]
 
 [tool.setuptools.package-data]
-noria_sms = ["py.typed"]
+noria_messaging = ["py.typed"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"

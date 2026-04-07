@@ -8,16 +8,17 @@ from typing import Any
 import httpx
 import pytest
 
-from noria_sms import (
-    AsyncSmsClient,
+from noria_messaging import (
+    AsyncMessagingClient,
     ConfigurationError,
     GatewayError,
-    OnfonGateway,
+    MessagingClient,
+    OnfonSmsGateway,
     RequestOptions,
     RetryPolicy,
-    SendSmsRequest,
-    SmsClient,
     SmsMessage,
+    SmsSendRequest,
+    WhatsAppTextRequest,
 )
 
 
@@ -80,17 +81,17 @@ def test_sms_client_sends_onfon_messages_and_formats_payload() -> None:
         ]
     )
 
-    gateway = OnfonGateway(
+    gateway = OnfonSmsGateway(
         access_key="access-key",
         api_key="api-key",
         client_id="client-id",
         default_sender_id="NORIA",
         client=client,
     )
-    client = SmsClient(gateway)
+    messaging = MessagingClient(sms=gateway)
 
-    result = client.send(
-        SendSmsRequest(
+    result = messaging.sms.send(
+        SmsSendRequest(
             messages=[SmsMessage(recipient="254712345678", text="Hello Alice", reference="user-1")],
             is_unicode=False,
             is_flash=False,
@@ -101,15 +102,16 @@ def test_sms_client_sends_onfon_messages_and_formats_payload() -> None:
     assert result.accepted is True
     assert result.submitted_count == 1
     assert result.messages[0].provider_message_id == "msg-123"
-    assert client.gateway.client.calls[0]["method"] == "POST"
-    assert client.gateway.client.calls[0]["url"] == "https://api.onfonmedia.co.ke/v1/sms/SendBulkSMS"
-    assert client.gateway.client.calls[0]["headers"]["AccessKey"] == "access-key"
-    assert client.gateway.client.calls[0]["json"]["SenderId"] == "NORIA"
-    assert client.gateway.client.calls[0]["json"]["ApiKey"] == "api-key"
-    assert client.gateway.client.calls[0]["json"]["ClientId"] == "client-id"
-    assert client.gateway.client.calls[0]["json"]["IsUnicode"] is False
-    assert client.gateway.client.calls[0]["json"]["IsFlash"] is False
-    assert client.gateway.client.calls[0]["json"]["ScheduleDateTime"] == "2026-04-08 09:30"
+    assert messaging.sms.gateway is not None
+    assert messaging.sms.gateway.client.calls[0]["method"] == "POST"
+    assert messaging.sms.gateway.client.calls[0]["url"] == "https://api.onfonmedia.co.ke/v1/sms/SendBulkSMS"
+    assert messaging.sms.gateway.client.calls[0]["headers"]["AccessKey"] == "access-key"
+    assert messaging.sms.gateway.client.calls[0]["json"]["SenderId"] == "NORIA"
+    assert messaging.sms.gateway.client.calls[0]["json"]["ApiKey"] == "api-key"
+    assert messaging.sms.gateway.client.calls[0]["json"]["ClientId"] == "client-id"
+    assert messaging.sms.gateway.client.calls[0]["json"]["IsUnicode"] is False
+    assert messaging.sms.gateway.client.calls[0]["json"]["IsFlash"] is False
+    assert messaging.sms.gateway.client.calls[0]["json"]["ScheduleDateTime"] == "2026-04-08 09:30"
 
 
 def test_onfon_gateway_marks_missing_message_ids_as_failed() -> None:
@@ -126,7 +128,7 @@ def test_onfon_gateway_marks_missing_message_ids_as_failed() -> None:
         ]
     )
 
-    gateway = OnfonGateway(
+    gateway = OnfonSmsGateway(
         access_key="access-key",
         api_key="api-key",
         client_id="client-id",
@@ -135,7 +137,7 @@ def test_onfon_gateway_marks_missing_message_ids_as_failed() -> None:
     )
 
     result = gateway.send(
-        SendSmsRequest(messages=[SmsMessage(recipient="254712345678", text="Hello Alice")])
+        SmsSendRequest(messages=[SmsMessage(recipient="254712345678", text="Hello Alice")])
     )
 
     assert result.accepted is True
@@ -158,7 +160,7 @@ def test_onfon_gateway_raises_gateway_error_on_top_level_provider_failure() -> N
         ]
     )
 
-    gateway = OnfonGateway(
+    gateway = OnfonSmsGateway(
         access_key="access-key",
         api_key="api-key",
         client_id="client-id",
@@ -168,7 +170,7 @@ def test_onfon_gateway_raises_gateway_error_on_top_level_provider_failure() -> N
 
     with pytest.raises(GatewayError) as exc:
         gateway.send(
-            SendSmsRequest(messages=[SmsMessage(recipient="254712345678", text="Hello Alice")])
+            SmsSendRequest(messages=[SmsMessage(recipient="254712345678", text="Hello Alice")])
         )
 
     assert exc.value.provider == "onfon"
@@ -190,7 +192,7 @@ def test_onfon_gateway_parses_balance_response() -> None:
         ]
     )
 
-    gateway = OnfonGateway(
+    gateway = OnfonSmsGateway(
         access_key="access-key",
         api_key="api-key",
         client_id="client-id",
@@ -208,7 +210,7 @@ def test_onfon_gateway_parses_balance_response() -> None:
 
 
 def test_onfon_gateway_parses_delivery_reports() -> None:
-    gateway = OnfonGateway(
+    gateway = OnfonSmsGateway(
         access_key="access-key",
         api_key="api-key",
         client_id="client-id",
@@ -227,21 +229,23 @@ def test_onfon_gateway_parses_delivery_reports() -> None:
     )
 
     assert report is not None
+    assert report.channel == "sms"
     assert report.provider == "onfon"
     assert report.provider_message_id == "msg-123"
     assert report.recipient == "254712345678"
-    assert report.status == "DELIVRD"
+    assert report.state == "delivered"
+    assert report.provider_status == "DELIVRD"
 
 
 def test_onfon_gateway_requires_sender_id_for_send() -> None:
-    gateway = OnfonGateway(
+    gateway = OnfonSmsGateway(
         access_key="access-key",
         api_key="api-key",
         client_id="client-id",
     )
 
     with pytest.raises(ConfigurationError):
-        gateway.send(SendSmsRequest(messages=[SmsMessage(recipient="254712345678", text="Hello")]))
+        gateway.send(SmsSendRequest(messages=[SmsMessage(recipient="254712345678", text="Hello")]))
 
 
 def test_onfon_gateway_uses_client_retry_policy_when_retry_true_is_requested() -> None:
@@ -259,7 +263,7 @@ def test_onfon_gateway_uses_client_retry_policy_when_retry_true_is_requested() -
         ]
     )
 
-    gateway = OnfonGateway(
+    gateway = OnfonSmsGateway(
         access_key="access-key",
         api_key="api-key",
         client_id="client-id",
@@ -274,7 +278,7 @@ def test_onfon_gateway_uses_client_retry_policy_when_retry_true_is_requested() -
     )
 
     result = gateway.send(
-        SendSmsRequest(messages=[SmsMessage(recipient="254712345678", text="Hello Alice")]),
+        SmsSendRequest(messages=[SmsMessage(recipient="254712345678", text="Hello Alice")]),
         options=RequestOptions(retry=True),
     )
 
@@ -282,7 +286,7 @@ def test_onfon_gateway_uses_client_retry_policy_when_retry_true_is_requested() -
     assert len(client.calls) == 2
 
 
-def test_async_sms_client_sends_messages_with_httpx_async_client() -> None:
+def test_async_messaging_client_sends_messages_with_httpx_async_client() -> None:
     async_client = FakeAsyncHttpClient(
         responses=[
             make_response(
@@ -301,7 +305,7 @@ def test_async_sms_client_sends_messages_with_httpx_async_client() -> None:
         ]
     )
 
-    gateway = OnfonGateway(
+    gateway = OnfonSmsGateway(
         access_key="access-key",
         api_key="api-key",
         client_id="client-id",
@@ -310,9 +314,9 @@ def test_async_sms_client_sends_messages_with_httpx_async_client() -> None:
     )
 
     async def run() -> None:
-        async with AsyncSmsClient(gateway) as sms:
-            result = await sms.send(
-                SendSmsRequest(messages=[SmsMessage(recipient="254712345678", text="Hello Alice")])
+        async with AsyncMessagingClient(sms=gateway) as messaging:
+            result = await messaging.sms.send(
+                SmsSendRequest(messages=[SmsMessage(recipient="254712345678", text="Hello Alice")])
             )
 
             assert result.submitted_count == 1
@@ -323,3 +327,12 @@ def test_async_sms_client_sends_messages_with_httpx_async_client() -> None:
         assert async_client.closed is False
 
     asyncio.run(run())
+
+
+def test_whatsapp_service_requires_gateway_configuration() -> None:
+    messaging = MessagingClient()
+
+    with pytest.raises(ConfigurationError):
+        messaging.whatsapp.send_text(
+            WhatsAppTextRequest(recipient="254712345678", text="Hello over WhatsApp")
+        )

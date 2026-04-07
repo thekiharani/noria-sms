@@ -6,7 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal
 
-MessageStatus = Literal["submitted", "failed"]
+SmsSendStatus = Literal["submitted", "failed"]
 
 
 @dataclass(slots=True)
@@ -18,7 +18,7 @@ class SmsMessage:
 
 
 @dataclass(slots=True)
-class SendSmsRequest:
+class SmsSendRequest:
     messages: Sequence[SmsMessage]
     sender_id: str | None = None
     schedule_at: datetime | str | None = None
@@ -28,11 +28,11 @@ class SendSmsRequest:
 
 
 @dataclass(slots=True)
-class SendReceipt:
+class SmsSendReceipt:
     provider: str
     recipient: str
     text: str
-    status: MessageStatus
+    status: SmsSendStatus
     provider_message_id: str | None = None
     reference: str | None = None
     provider_error_code: str | None = None
@@ -41,12 +41,12 @@ class SendReceipt:
 
 
 @dataclass(slots=True)
-class SendSmsResult:
+class SmsSendResult:
     provider: str
     accepted: bool
     error_code: str | None
     error_description: str | None
-    messages: tuple[SendReceipt, ...]
+    messages: tuple[SmsSendReceipt, ...]
     raw: object = None
 
     @property
@@ -73,14 +73,6 @@ class SmsBalance:
     raw: object = None
 
 
-@dataclass(slots=True)
-class DeliveryReport:
-    provider: str
-    provider_message_id: str
-    recipient: str | None = None
-    status: str | None = None
-    error_code: str | None = None
-    submitted_at: str | None = None
-    completed_at: str | None = None
-    short_message: str | None = None
-    raw: Mapping[str, str | None] = field(default_factory=dict)
+SendSmsRequest = SmsSendRequest
+SendReceipt = SmsSendReceipt
+SendSmsResult = SmsSendResult

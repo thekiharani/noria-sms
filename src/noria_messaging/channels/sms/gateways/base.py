@@ -3,8 +3,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Protocol
 
-from ..models import DeliveryReport, SendSmsRequest, SendSmsResult, SmsBalance
-from ..types import RequestOptions
+from ....events import DeliveryEvent
+from ....types import RequestOptions
+from ..models import SmsBalance, SmsSendRequest, SmsSendResult
 
 
 class SmsGateway(Protocol):
@@ -12,14 +13,14 @@ class SmsGateway(Protocol):
 
     def send(
         self,
-        request: SendSmsRequest,
+        request: SmsSendRequest,
         *,
         options: RequestOptions | None = None,
-    ) -> SendSmsResult: ...
+    ) -> SmsSendResult: ...
 
     def get_balance(self, *, options: RequestOptions | None = None) -> SmsBalance | None: ...
 
-    def parse_delivery_report(self, payload: Mapping[str, object]) -> DeliveryReport | None: ...
+    def parse_delivery_report(self, payload: Mapping[str, object]) -> DeliveryEvent | None: ...
 
     def close(self) -> None: ...
 
@@ -29,13 +30,13 @@ class AsyncSmsGateway(Protocol):
 
     async def asend(
         self,
-        request: SendSmsRequest,
+        request: SmsSendRequest,
         *,
         options: RequestOptions | None = None,
-    ) -> SendSmsResult: ...
+    ) -> SmsSendResult: ...
 
     async def aget_balance(self, *, options: RequestOptions | None = None) -> SmsBalance | None: ...
 
-    def parse_delivery_report(self, payload: Mapping[str, object]) -> DeliveryReport | None: ...
+    def parse_delivery_report(self, payload: Mapping[str, object]) -> DeliveryEvent | None: ...
 
     async def aclose(self) -> None: ...

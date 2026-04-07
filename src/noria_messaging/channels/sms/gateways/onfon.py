@@ -6,18 +6,11 @@ from typing import Any
 
 import httpx
 
-from ..exceptions import ConfigurationError, GatewayError
-from ..http import AsyncHttpClient, HttpClient
-from ..models import (
-    DeliveryReport,
-    SendReceipt,
-    SendSmsRequest,
-    SendSmsResult,
-    SmsBalance,
-    SmsBalanceEntry,
-)
-from ..types import Hooks, HttpRequestOptions, RequestOptions, RetryPolicy
-from ..utils import (
+from ....events import DeliveryEvent
+from ....exceptions import ConfigurationError, GatewayError
+from ....http import AsyncHttpClient, HttpClient
+from ....types import Hooks, HttpRequestOptions, RequestOptions, RetryPolicy
+from ....utils import (
     coerce_string,
     first_text,
     format_schedule_time,
@@ -26,17 +19,19 @@ from ..utils import (
     parse_decimal_from_text,
     to_object,
 )
+from ..models import SmsBalance, SmsBalanceEntry, SmsSendReceipt, SmsSendRequest, SmsSendResult
 
-ONFON_BASE_URL = "https://api.onfonmedia.co.ke/v1/sms"
+ONFON_SMS_BASE_URL = "https://api.onfonmedia.co.ke/v1/sms"
+ONFON_BASE_URL = ONFON_SMS_BASE_URL
 
 
 @dataclass(slots=True)
-class OnfonGateway:
+class OnfonSmsGateway:
     access_key: str
     api_key: str
     client_id: str
     default_sender_id: str | None = None
-    base_url: str = ONFON_BASE_URL
+    base_url: str = ONFON_SMS_BASE_URL
     client: httpx.Client | Any | None = None
     async_client: httpx.AsyncClient | Any | None = None
     timeout_seconds: float | None = 30.0
@@ -63,10 +58,10 @@ class OnfonGateway:
 
     def send(
         self,
-        request: SendSmsRequest,
+        request: SmsSendRequest,
         *,
         options: RequestOptions | None = None,
-    ) -> SendSmsResult:
+    ) -> SmsSendResult:
         payload = self._build_send_payload(request)
         response = self._request(
             HttpRequestOptions(
@@ -82,10 +77,10 @@ class OnfonGateway:
 
     async def asend(
         self,
-        request: SendSmsRequest,
+        request: SmsSendRequest,
         *,
         options: RequestOptions | None = None,
-    ) -> SendSmsResult:
+    ) -> SmsSendResult:
         payload = self._build_send_payload(request)
         response = await self._arequest(
             HttpRequestOptions(
@@ -125,23 +120,26 @@ class OnfonGateway:
         )
         return self._build_balance_result(response)
 
-    def parse_delivery_report(self, payload: Mapping[str, object]) -> DeliveryReport | None:
+    def parse_delivery_report(self, payload: Mapping[str, object]) -> DeliveryEvent | None:
         normalized = normalize_query_mapping(payload)
         provider_message_id = first_text(normalized.get("messageId"), normalized.get("MessageId"))
         if provider_message_id is None:
             return None
+        provider_status = first_text(normalized.get("status"), normalized.get("Status"))
 
-        return DeliveryReport(
+        return DeliveryEvent(
+            channel="sms",
             provider=self.provider_name,
             provider_message_id=provider_message_id,
             recipient=first_text(normalized.get("mobile"), normalized.get("MobileNumber")),
-            status=first_text(normalized.get("status"), normalized.get("Status")),
+            state=_map_delivery_state(provider_status),
+            provider_status=provider_status,
             error_code=first_text(normalized.get("errorCode"), normalized.get("ErrorCode")),
-            submitted_at=first_text(normalized.get("submitDate"), normalized.get("SubmitDate")),
-            completed_at=first_text(normalized.get("doneDate"), normalized.get("DoneDate")),
-            short_message=first_text(
-                normalized.get("shortMessage"),
-                normalized.get("ShortMessage"),
+            occurred_at=first_text(
+                normalized.get("doneDate"),
+                normalized.get("DoneDate"),
+                normalized.get("submitDate"),
+                normalized.get("SubmitDate"),
             ),
             raw=normalized,
         )
@@ -154,12 +152,12 @@ class OnfonGateway:
         if self._async_http is not None:
             await self._async_http.aclose()
 
-    def _build_send_payload(self, request: SendSmsRequest) -> dict[str, Any]:
+    def _build_send_payload(self, request: SmsSendRequest) -> dict[str, Any]:
         _validate_send_request(request)
         sender_id = first_text(request.sender_id, self.default_sender_id)
         if sender_id is None:
             raise ConfigurationError(
-                "sender_id is required either on SendSmsRequest or as default_sender_id."
+                "sender_id is required either on SmsSendRequest or as default_sender_id."
             )
 
         payload = dict(request.provider_options or {})
@@ -189,12 +187,12 @@ class OnfonGateway:
 
     def _build_send_result(
         self,
-        request: SendSmsRequest,
+        request: SmsSendRequest,
         response: Mapping[str, object],
-    ) -> SendSmsResult:
+    ) -> SmsSendResult:
         rows = response.get("Data")
         items = rows if isinstance(rows, list) else []
-        receipts: list[SendReceipt] = []
+        receipts: list[SmsSendReceipt] = []
 
         for index, message in enumerate(request.messages):
             row = to_object(items[index]) if index < len(items) else {}
@@ -214,7 +212,7 @@ class OnfonGateway:
                 provider_error_description = None
 
             receipts.append(
-                SendReceipt(
+                SmsSendReceipt(
                     provider=self.provider_name,
                     recipient=recipient,
                     text=message.text,
@@ -227,7 +225,7 @@ class OnfonGateway:
                 )
             )
 
-        return SendSmsResult(
+        return SmsSendResult(
             provider=self.provider_name,
             accepted=True,
             error_code=_normalize_error_code(response.get("ErrorCode")),
@@ -313,9 +311,9 @@ class OnfonGateway:
         }
 
 
-def _validate_send_request(request: SendSmsRequest) -> None:
+def _validate_send_request(request: SmsSendRequest) -> None:
     if not request.messages:
-        raise ValueError("SendSmsRequest.messages must not be empty.")
+        raise ValueError("SmsSendRequest.messages must not be empty.")
 
     for index, message in enumerate(request.messages):
         if coerce_string(message.recipient) is None:
@@ -358,3 +356,20 @@ def _is_success_code(value: object) -> bool:
         return int(text) == 0
     except ValueError:
         return False
+
+
+def _map_delivery_state(status: str | None) -> str:
+    if status is None:
+        return "unknown"
+
+    normalized = status.upper()
+    if normalized in {"DELIVRD", "DELIVERED"}:
+        return "delivered"
+    if normalized in {"ACCEPTD", "ACCEPTED", "SUBMITTED", "ENROUTE"}:
+        return "submitted"
+    if normalized in {"FAILED", "REJECTD", "UNDELIV", "EXPIRED"}:
+        return "failed"
+    return "unknown"
+
+
+OnfonGateway = OnfonSmsGateway
